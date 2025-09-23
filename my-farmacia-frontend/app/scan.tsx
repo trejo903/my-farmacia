@@ -1,15 +1,60 @@
 // app/scan.tsx
-import React, { useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { View, Text, StyleSheet, Alert, Pressable } from "react-native";
 import { CameraView, useCameraPermissions } from "expo-camera";
+import { useFocusEffect } from "expo-router";
+import * as Haptics from "expo-haptics";
 
 export default function ScanScreen() {
   const [permission, requestPermission] = useCameraPermissions();
   const [scanned, setScanned] = useState(false);
+  const requestingRef = useRef(false); // evita pedir permiso varias veces
+  const cooldownRef = useRef<number | null>(null); // antirebote
 
+  // Pide permiso SOLO una vez si se puede volver a preguntar
   useEffect(() => {
-    if (!permission?.granted) requestPermission();
-  }, [permission]);
+    if (!permission) return;
+    if (permission.granted) return;
+    if (!permission.canAskAgain) return;
+    if (requestingRef.current) return;
+    requestingRef.current = true;
+    requestPermission().finally(() => {
+      // 300ms para evitar ráfagas de renders
+      setTimeout(() => (requestingRef.current = false), 300);
+    });
+  }, [permission, requestPermission]);
+
+  // Al volver a esta pantalla, resetea el estado de "scanned"
+  useFocusEffect(
+    useCallback(() => {
+      setScanned(false);
+      return () => {
+        if (cooldownRef.current) {
+          clearTimeout(cooldownRef.current);
+          cooldownRef.current = null;
+        }
+      };
+    }, [])
+  );
+
+  const handleBarcode = useCallback(
+    async ({ data, type }: { data: string; type: string }) => {
+      if (scanned) return; // ya se disparó
+      setScanned(true);
+
+      try { await Haptics.selectionAsync(); } catch {}
+
+      // Pequeño cooldown para evitar dobles lecturas del mismo frame
+      cooldownRef.current = setTimeout(() => {
+        cooldownRef.current = null;
+      }, 1200);
+
+      Alert.alert("QR escaneado", `Tipo: ${type}\nDatos: ${data}`);
+      // Aquí luego navegas a otra ruta y haces fetch, etc.
+      // router.replace({ pathname: "/detalle", params: { uid: data, type } });
+    },
+    [scanned]
+  );
 
   if (!permission) {
     return (
@@ -37,14 +82,7 @@ export default function ScanScreen() {
       <CameraView
         style={StyleSheet.absoluteFillObject}
         barcodeScannerSettings={{ barcodeTypes: ["qr"] }}
-        onBarcodeScanned={
-          scanned
-            ? undefined
-            : ({ data, type }) => {
-                setScanned(true);
-                Alert.alert("QR escaneado", `Tipo: ${type}\nDatos: ${data}`);
-              }
-        }
+        onBarcodeScanned={scanned ? undefined : handleBarcode}
       />
 
       {scanned && (
@@ -75,12 +113,12 @@ const styles = StyleSheet.create({
     position: "absolute",
     bottom: 60,
     alignSelf: "center",
-    backgroundColor: "rgba(190, 21, 21, 0.95)",
+    backgroundColor: "rgba(21, 111, 228, 0.95)",
     paddingHorizontal: 16,
     paddingVertical: 10,
     borderRadius: 10,
   },
-  scanAgainText: { fontWeight: "600" },
+  scanAgainText: { fontWeight: "600", color: "#fff" },
   overlay: {
     ...StyleSheet.absoluteFillObject,
     alignItems: "center",
@@ -95,11 +133,11 @@ const styles = StyleSheet.create({
   },
   overlayText: {
     position: "absolute",
-    bottom: 120,
+    bottom: 130,
     color: "#fff",
     fontWeight: "600",
     textShadowColor: "rgba(0,0,0,0.7)",
     textShadowOffset: { width: 0, height: 1 },
-    textShadowRadius: 2,
+    textShadowRadius: 5,
   },
 });
