@@ -1,6 +1,6 @@
 // app/scan.tsx
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { View, Text, StyleSheet, Alert, Pressable } from "react-native";
+import { View, Text, StyleSheet, Alert, Pressable, Linking } from "react-native";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import { useFocusEffect } from "expo-router";
 import * as Haptics from "expo-haptics";
@@ -8,10 +8,10 @@ import * as Haptics from "expo-haptics";
 export default function ScanScreen() {
   const [permission, requestPermission] = useCameraPermissions();
   const [scanned, setScanned] = useState(false);
-  const requestingRef = useRef(false); // evita pedir permiso varias veces
-  const cooldownRef = useRef<number | null>(null); // antirebote
+  const requestingRef = useRef(false);
+  const cooldownRef = useRef<number | null>(null);
 
-  // Pide permiso SOLO una vez si se puede volver a preguntar
+  // Pedir permiso si aún se puede
   useEffect(() => {
     if (!permission) return;
     if (permission.granted) return;
@@ -19,12 +19,11 @@ export default function ScanScreen() {
     if (requestingRef.current) return;
     requestingRef.current = true;
     requestPermission().finally(() => {
-      // 300ms para evitar ráfagas de renders
       setTimeout(() => (requestingRef.current = false), 300);
     });
   }, [permission, requestPermission]);
 
-  // Al volver a esta pantalla, resetea el estado de "scanned"
+  // Reset al volver a enfocar la pantalla
   useFocusEffect(
     useCallback(() => {
       setScanned(false);
@@ -39,23 +38,20 @@ export default function ScanScreen() {
 
   const handleBarcode = useCallback(
     async ({ data, type }: { data: string; type: string }) => {
-      if (scanned) return; // ya se disparó
+      if (scanned) return;
       setScanned(true);
-
       try { await Haptics.selectionAsync(); } catch {}
-
-      // Pequeño cooldown para evitar dobles lecturas del mismo frame
       cooldownRef.current = setTimeout(() => {
         cooldownRef.current = null;
       }, 1200);
-
       Alert.alert("QR escaneado", `Tipo: ${type}\nDatos: ${data}`);
-      // Aquí luego navegas a otra ruta y haces fetch, etc.
+      // Ejemplo de navegación:
       // router.replace({ pathname: "/detalle", params: { uid: data, type } });
     },
     [scanned]
   );
 
+  // Cargando estado de permiso
   if (!permission) {
     return (
       <View style={styles.center}>
@@ -64,23 +60,36 @@ export default function ScanScreen() {
     );
   }
 
+  // Permiso denegado
   if (!permission.granted) {
     return (
       <View style={styles.center}>
-        <Text style={{ marginBottom: 12 }}>
+        <Text style={{ marginBottom: 12, textAlign: "center" }}>
           Se requiere permiso de cámara para escanear.
         </Text>
-        <Pressable style={styles.btn} onPress={requestPermission}>
-          <Text style={styles.btnText}>Conceder permiso</Text>
-        </Pressable>
+
+        {permission.canAskAgain ? (
+          <Pressable style={styles.btn} onPress={requestPermission}>
+            <Text style={styles.btnText}>Conceder permiso</Text>
+          </Pressable>
+        ) : (
+          <Pressable
+            style={styles.btn}
+            onPress={() => Linking.openSettings().catch(() => {})}
+          >
+            <Text style={styles.btnText}>Abrir Ajustes</Text>
+          </Pressable>
+        )}
       </View>
     );
   }
 
+  // Cámara
   return (
     <View style={styles.container}>
       <CameraView
         style={StyleSheet.absoluteFillObject}
+        facing="back"                               // 👈 fuerza cámara trasera
         barcodeScannerSettings={{ barcodeTypes: ["qr"] }}
         onBarcodeScanned={scanned ? undefined : handleBarcode}
       />
@@ -106,7 +115,7 @@ const styles = StyleSheet.create({
     backgroundColor: "#0A84FF",
     paddingHorizontal: 16,
     paddingVertical: 10,
-    borderRadius: 10,
+    borderRadius: 10
   },
   btnText: { color: "#fff", fontWeight: "600" },
   scanAgain: {
@@ -116,20 +125,20 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(21, 111, 228, 0.95)",
     paddingHorizontal: 16,
     paddingVertical: 10,
-    borderRadius: 10,
+    borderRadius: 10
   },
   scanAgainText: { fontWeight: "600", color: "#fff" },
   overlay: {
     ...StyleSheet.absoluteFillObject,
     alignItems: "center",
-    justifyContent: "center",
+    justifyContent: "center"
   },
   guideBox: {
     width: 260,
     height: 260,
     borderWidth: 3,
     borderColor: "rgba(255,255,255,0.9)",
-    borderRadius: 16,
+    borderRadius: 16
   },
   overlayText: {
     position: "absolute",
@@ -138,6 +147,6 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     textShadowColor: "rgba(0,0,0,0.7)",
     textShadowOffset: { width: 0, height: 1 },
-    textShadowRadius: 5,
-  },
+    textShadowRadius: 5
+  }
 });

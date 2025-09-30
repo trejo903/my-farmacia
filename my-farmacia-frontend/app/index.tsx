@@ -1,10 +1,6 @@
-// app/index.tsx
-import { Text, View } from "react-native";
+import { Redirect } from "expo-router";
 
 export default function Index() {
-  return (
-    <View style={{ flex: 1, justifyContent: "center", alignItems: "center" }}>
-      <Text>Hola mundo  prueba</Text>
-    </View>
-  );
+  // Al salir del splash nativo, vamos directo al escáner
+  return <Redirect href="/scan" />;
 }

@@ -4,42 +4,36 @@ import { View, Image, StyleSheet, StatusBar, Animated, Easing, Pressable } from 
 import { useRouter } from "expo-router";
 import { Asset } from "expo-asset";
 
-const DURATION_SHOW_MS = 5000; // 5s
-const FADE_MS = 450;           // duración del fade in/out
+const DURATION_SHOW_MS = 9000; // 9s
+const FADE_MS = 650;
 
 export default function SplashScreen() {
   const router = useRouter();
   const opacity = useRef(new Animated.Value(0)).current;
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Pre-carga del asset (evita blink en algunos dispositivos)
   useEffect(() => {
     let isMounted = true;
-
     (async () => {
       try {
         await Asset.fromModule(require("../assets/images/logo_farmacia.jpg")).downloadAsync();
-      } catch {
-        // mismo flujo aunque falle la precarga
-      }
+      } catch {}
       if (!isMounted) return;
 
-      // Fade in
       Animated.timing(opacity, {
         toValue: 1,
         duration: FADE_MS,
         easing: Easing.out(Easing.quad),
-        useNativeDriver: true,
+        useNativeDriver: true
       }).start(() => {
-        // Mantén visible y luego dispara fade out + navegación
         timeoutRef.current = setTimeout(() => {
           Animated.timing(opacity, {
             toValue: 0,
             duration: FADE_MS,
             easing: Easing.in(Easing.quad),
-            useNativeDriver: true,
+            useNativeDriver: true
           }).start(() => {
-            router.replace("/scan"); // ⬅️ ir a app/scan.tsx
+            router.replace("/scan"); // ir directo al lector
           });
         }, Math.max(0, DURATION_SHOW_MS - FADE_MS));
       });
@@ -48,11 +42,10 @@ export default function SplashScreen() {
     return () => {
       isMounted = false;
       if (timeoutRef.current) clearTimeout(timeoutRef.current);
-      opacity.stopAnimation(); // evita animaciones colgantes
+      opacity.stopAnimation();
     };
   }, [opacity]);
 
-  // Opción: permitir “tocar para continuar”
   const handleSkip = () => {
     if (timeoutRef.current) {
       clearTimeout(timeoutRef.current);
@@ -62,9 +55,9 @@ export default function SplashScreen() {
       toValue: 0,
       duration: FADE_MS,
       easing: Easing.in(Easing.quad),
-      useNativeDriver: true,
+      useNativeDriver: true
     }).start(() => {
-      router.replace("/scan"); // ⬅️ ir a app/scan.tsx
+      router.replace("/scan");
     });
   };
 
@@ -93,9 +86,5 @@ export default function SplashScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#ffffff" },
   center: { flex: 1, alignItems: "center", justifyContent: "center" },
-  logo: {
-    width: "70%",
-    height: undefined,
-    aspectRatio: 1, // ajusta si tu logo es rectangular (p.ej., 3/2 o 16/9)
-  },
+  logo: { width: "70%", height: undefined, aspectRatio: 1 }
 });
