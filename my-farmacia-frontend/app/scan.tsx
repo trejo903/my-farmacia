@@ -1,3 +1,4 @@
+// app/scan.tsx
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { View, Text, StyleSheet, Alert, Pressable, Linking } from "react-native";
 import { CameraView, useCameraPermissions } from "expo-camera";
@@ -5,10 +6,33 @@ import { useFocusEffect, useRouter } from "expo-router";
 import * as Haptics from "expo-haptics";
 import * as ExpoLinking from "expo-linking";
 
+/** === Política de apertura de enlaces === */
+type OpenPolicy = "whitelist" | "any-https";
+const OPEN_POLICY: OpenPolicy = "whitelist"; // más seguro por defecto
+const DEBUG = false; // pon true para ver alertas con host/path al probar
+
 /** === Seguridad y validación === */
 const SCAN_MAX_LEN = 512;                    // Máximo tamaño aceptado
 const ID_REGEX = /^[A-Za-z0-9\-_:]{4,64}$/;  // Ajusta a tu formato
 const APP_SCHEME = "myfarmaciafrontend";     // También definido en app.json
+
+// Dominios permitidos (coincidencia EXACTA)
+const ALLOWED_HOSTS = new Set([
+  "tu-dominio.com",
+  "api.tu-dominio.com",
+  "example.org", // ← tu ejemplo; recuerda: solo el host, sin https ni path
+  "tidal.com"
+]);
+
+// Lista de dominios base para permitir subdominios (*.root)
+const ROOT_DOMAINS = [
+  "tu-dominio.com",
+  // "example.org", // Descomenta si quieres permitir subdominios de example.org
+];
+
+// Permite subdominios de cualquiera en ROOT_DOMAINS
+const isAllowedSubdomain = (h: string) =>
+  ROOT_DOMAINS.some(root => h === root || h.endsWith(`.${root}`));
 
 function sanitize(raw: string) {
   return raw.replace(/[\u0000-\u001F\u007F\uFEFF]/g, "").trim();
@@ -86,16 +110,42 @@ export default function ScanScreen() {
         return;
       }
 
-      // 2) URL HTTPS → confirmar y abrir (sin lista blanca)
+      // 2) URL HTTPS → según política (lista blanca o cualquier https)
       const url = isHttpsUrl(value);
       if (url) {
-        const pretty = url.toString();
-        Alert.alert("Abrir enlace", pretty, [
+        const host = url.hostname.toLowerCase();
+        const path = url.pathname;
+
+        if (DEBUG) {
+          Alert.alert("DEBUG", `host: ${host}\npath: ${path}`);
+        }
+
+        if (OPEN_POLICY === "whitelist") {
+          // Permite si está en la lista exacta o es subdominio de ROOT_DOMAINS
+          const permitido = ALLOWED_HOSTS.has(host) || isAllowedSubdomain(host);
+
+          // (OPCIONAL) Ejemplo de restricción adicional por path en example.org
+          // if (host === "example.org" && !path.startsWith("/un/")) {
+          //   Alert.alert("Enlace bloqueado", "Ruta no permitida en example.org", [
+          //     { text: "OK", onPress: () => setScanned(false) }
+          //   ]);
+          //   return;
+          // }
+
+          if (!permitido) {
+            Alert.alert("Enlace bloqueado", `Dominio no permitido: ${host}`, [
+              { text: "OK", onPress: () => setScanned(false) }
+            ]);
+            return;
+          }
+        }
+
+        Alert.alert("Abrir enlace", url.toString(), [
           { text: "Cancelar", style: "cancel", onPress: () => setScanned(false) },
           {
             text: "Abrir",
             onPress: async () => {
-              try { await Linking.openURL(pretty); }
+              try { await Linking.openURL(url.toString()); }
               catch {
                 Alert.alert("Error", "No se pudo abrir el enlace.", [
                   { text: "OK", onPress: () => setScanned(false) }
@@ -184,7 +234,7 @@ const styles = StyleSheet.create({
   btnText: { color: "#fff", fontWeight: "600" },
   scanAgain: {
     position: "absolute",
-    bottom: 80,
+    bottom: 60,
     alignSelf: "center",
     backgroundColor: "rgba(21, 111, 228, 0.95)",
     paddingHorizontal: 16,
