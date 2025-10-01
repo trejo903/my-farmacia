@@ -1,15 +1,35 @@
-// app/scan.tsx
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { View, Text, StyleSheet, Alert, Pressable, Linking } from "react-native";
 import { CameraView, useCameraPermissions } from "expo-camera";
-import { useFocusEffect } from "expo-router";
+import { useFocusEffect, useRouter } from "expo-router";
 import * as Haptics from "expo-haptics";
+import * as ExpoLinking from "expo-linking";
+
+/** === Seguridad y validación === */
+const SCAN_MAX_LEN = 512;                    // Máximo tamaño aceptado
+const ID_REGEX = /^[A-Za-z0-9\-_:]{4,64}$/;  // Ajusta a tu formato
+const APP_SCHEME = "myfarmaciafrontend";     // También definido en app.json
+
+function sanitize(raw: string) {
+  return raw.replace(/[\u0000-\u001F\u007F\uFEFF]/g, "").trim();
+}
+function isHttpsUrl(s: string): URL | null {
+  try {
+    const u = new URL(s);
+    return u.protocol === "https:" ? u : null;
+  } catch {
+    return null;
+  }
+}
+function isDeepLink(s: string) {
+  return s.startsWith(`${APP_SCHEME}://`);
+}
 
 export default function ScanScreen() {
   const [permission, requestPermission] = useCameraPermissions();
   const [scanned, setScanned] = useState(false);
   const requestingRef = useRef(false);
-  const cooldownRef = useRef<number | null>(null);
+  const router = useRouter();
 
   // Pedir permiso si aún se puede
   useEffect(() => {
@@ -27,12 +47,7 @@ export default function ScanScreen() {
   useFocusEffect(
     useCallback(() => {
       setScanned(false);
-      return () => {
-        if (cooldownRef.current) {
-          clearTimeout(cooldownRef.current);
-          cooldownRef.current = null;
-        }
-      };
+      return () => {};
     }, [])
   );
 
@@ -41,17 +56,71 @@ export default function ScanScreen() {
       if (scanned) return;
       setScanned(true);
       try { await Haptics.selectionAsync(); } catch {}
-      cooldownRef.current = setTimeout(() => {
-        cooldownRef.current = null;
-      }, 1200);
-      Alert.alert("QR escaneado", `Tipo: ${type}\nDatos: ${data}`);
-      // Ejemplo de navegación:
-      // router.replace({ pathname: "/detalle", params: { uid: data, type } });
+
+      const value = sanitize(String(data));
+      if (!value || value.length > SCAN_MAX_LEN) {
+        Alert.alert("QR inválido", "El contenido del código no es válido.", [
+          { text: "OK", onPress: () => setScanned(false) }
+        ]);
+        return;
+      }
+
+      // 1) Deep link interno: myfarmaciafrontend://detalle?id=XYZ
+      if (isDeepLink(value)) {
+        const parsed = ExpoLinking.parse(value);
+        const path = (parsed?.path ?? "").replace(/^\/+/, ""); // "detalle"
+        if (path === "detalle") {
+          const id = String(parsed?.queryParams?.id ?? "");
+          if (!ID_REGEX.test(id)) {
+            Alert.alert("ID inválido", "El enlace interno no contiene un ID válido.", [
+              { text: "OK", onPress: () => setScanned(false) }
+            ]);
+            return;
+          }
+          router.push({ pathname: "/detalle", params: { id, kind: type } });
+          return;
+        }
+        Alert.alert("Enlace interno desconocido", value, [
+          { text: "OK", onPress: () => setScanned(false) }
+        ]);
+        return;
+      }
+
+      // 2) URL HTTPS → confirmar y abrir (sin lista blanca)
+      const url = isHttpsUrl(value);
+      if (url) {
+        const pretty = url.toString();
+        Alert.alert("Abrir enlace", pretty, [
+          { text: "Cancelar", style: "cancel", onPress: () => setScanned(false) },
+          {
+            text: "Abrir",
+            onPress: async () => {
+              try { await Linking.openURL(pretty); }
+              catch {
+                Alert.alert("Error", "No se pudo abrir el enlace.", [
+                  { text: "OK", onPress: () => setScanned(false) }
+                ]);
+              }
+            }
+          }
+        ]);
+        return;
+      }
+
+      // 3) ID opaco → navegar a detalle y consultar backend
+      if (ID_REGEX.test(value)) {
+        router.push({ pathname: "/detalle", params: { id: value, kind: type } });
+        return;
+      }
+
+      // 4) Caso no reconocido
+      Alert.alert("Código no compatible", "Este QR no coincide con los formatos soportados.", [
+        { text: "OK", onPress: () => setScanned(false) }
+      ]);
     },
-    [scanned]
+    [scanned, router]
   );
 
-  // Cargando estado de permiso
   if (!permission) {
     return (
       <View style={styles.center}>
@@ -60,14 +129,12 @@ export default function ScanScreen() {
     );
   }
 
-  // Permiso denegado
   if (!permission.granted) {
     return (
       <View style={styles.center}>
         <Text style={{ marginBottom: 12, textAlign: "center" }}>
           Se requiere permiso de cámara para escanear.
         </Text>
-
         {permission.canAskAgain ? (
           <Pressable style={styles.btn} onPress={requestPermission}>
             <Text style={styles.btnText}>Conceder permiso</Text>
@@ -84,22 +151,19 @@ export default function ScanScreen() {
     );
   }
 
-  // Cámara
   return (
     <View style={styles.container}>
       <CameraView
         style={StyleSheet.absoluteFillObject}
-        facing="back"                               // 👈 fuerza cámara trasera
+        facing="back"
         barcodeScannerSettings={{ barcodeTypes: ["qr"] }}
         onBarcodeScanned={scanned ? undefined : handleBarcode}
       />
-
       {scanned && (
         <Pressable style={styles.scanAgain} onPress={() => setScanned(false)}>
           <Text style={styles.scanAgainText}>Tocar para escanear de nuevo</Text>
         </Pressable>
       )}
-
       <View pointerEvents="none" style={styles.overlay}>
         <View style={styles.guideBox} />
         <Text style={styles.overlayText}>Alinea el QR dentro del recuadro</Text>
@@ -120,7 +184,7 @@ const styles = StyleSheet.create({
   btnText: { color: "#fff", fontWeight: "600" },
   scanAgain: {
     position: "absolute",
-    bottom: 60,
+    bottom: 80,
     alignSelf: "center",
     backgroundColor: "rgba(21, 111, 228, 0.95)",
     paddingHorizontal: 16,
@@ -128,18 +192,8 @@ const styles = StyleSheet.create({
     borderRadius: 10
   },
   scanAgainText: { fontWeight: "600", color: "#fff" },
-  overlay: {
-    ...StyleSheet.absoluteFillObject,
-    alignItems: "center",
-    justifyContent: "center"
-  },
-  guideBox: {
-    width: 260,
-    height: 260,
-    borderWidth: 3,
-    borderColor: "rgba(255,255,255,0.9)",
-    borderRadius: 16
-  },
+  overlay: { ...StyleSheet.absoluteFillObject, alignItems: "center", justifyContent: "center" },
+  guideBox: { width: 260, height: 260, borderWidth: 3, borderColor: "rgba(255,255,255,0.9)", borderRadius: 16 },
   overlayText: {
     position: "absolute",
     bottom: 130,

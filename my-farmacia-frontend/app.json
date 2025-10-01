@@ -9,7 +9,7 @@
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "splash": {
-      "image": "./assets/images/logo_farmacia.jpg",
+      "image": "./assets/images/logo_farmacia.png",
       "resizeMode": "contain",
       "backgroundColor": "#ffffff"
     },
@@ -28,9 +28,7 @@
       },
       "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false,
-      "permissions": [
-        "CAMERA"
-      ],
+      "permissions": ["CAMERA"],
       "package": "com.eduardo.conde.is.myfarmaciafrontend"
     },
     "web": {
@@ -39,13 +37,7 @@
     },
     "plugins": [
       "expo-router",
-      [
-        "expo-camera",
-        {
-          "cameraPermission": "La cámara se utiliza para escanear códigos QR de clientes."
-        }
-      ],
-      "expo-asset"
+      ["expo-camera", { "cameraPermission": "La cámara se utiliza para escanear códigos QR de clientes." }]
     ],
     "experiments": {
       "typedRoutes": true,
