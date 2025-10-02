@@ -6,33 +6,10 @@ import { useFocusEffect, useRouter } from "expo-router";
 import * as Haptics from "expo-haptics";
 import * as ExpoLinking from "expo-linking";
 
-/** === Política de apertura de enlaces === */
-type OpenPolicy = "whitelist" | "any-https";
-const OPEN_POLICY: OpenPolicy = "whitelist"; // más seguro por defecto
-const DEBUG = false; // pon true para ver alertas con host/path al probar
-
-/** === Seguridad y validación === */
+/** ================== Config y utilidades comunes ================== */
 const SCAN_MAX_LEN = 512;                    // Máximo tamaño aceptado
-const ID_REGEX = /^[A-Za-z0-9\-_:]{4,64}$/;  // Ajusta a tu formato
-const APP_SCHEME = "myfarmaciafrontend";     // También definido en app.json
-
-// Dominios permitidos (coincidencia EXACTA)
-const ALLOWED_HOSTS = new Set([
-  "tu-dominio.com",
-  "api.tu-dominio.com",
-  "example.org", // ← tu ejemplo; recuerda: solo el host, sin https ni path
-  "tidal.com"
-]);
-
-// Lista de dominios base para permitir subdominios (*.root)
-const ROOT_DOMAINS = [
-  "tu-dominio.com",
-  // "example.org", // Descomenta si quieres permitir subdominios de example.org
-];
-
-// Permite subdominios de cualquiera en ROOT_DOMAINS
-const isAllowedSubdomain = (h: string) =>
-  ROOT_DOMAINS.some(root => h === root || h.endsWith(`.${root}`));
+const ID_REGEX = /^[A-Za-z0-9\-_:]{4,64}$/;  // Ajusta si luego usas IDs opacos
+const APP_SCHEME = "myfarmaciafrontend";     // Debe coincidir con el "scheme" de app.json
 
 function sanitize(raw: string) {
   return raw.replace(/[\u0000-\u001F\u007F\uFEFF]/g, "").trim();
@@ -48,6 +25,20 @@ function isHttpsUrl(s: string): URL | null {
 function isDeepLink(s: string) {
   return s.startsWith(`${APP_SCHEME}://`);
 }
+
+/** ================== ⬇️ CAMBIO: Dominio permitido ==================
+ * Requerimiento: abrir solo si el link pertenece a este dominio base
+ * o a cualquiera de sus subdominios.
+ */
+const BASE_HOST = "orgfarm-8f56af8a1f-dev-ed.develop.my.site.com";
+
+/** Comprueba host exacto o subdominio de BASE_HOST (seguro). */
+function isAllowedBaseHost(hostname: string) {
+  // normalizamos: minúsculas y sin puntos finales
+  const host = hostname.replace(/\.+$/, "").toLowerCase();
+  return host === BASE_HOST || host.endsWith(`.${BASE_HOST}`);
+}
+/** ================================================================ */
 
 export default function ScanScreen() {
   const [permission, requestPermission] = useCameraPermissions();
@@ -89,7 +80,7 @@ export default function ScanScreen() {
         return;
       }
 
-      // 1) Deep link interno: myfarmaciafrontend://detalle?id=XYZ
+      // 1) Deep link interno: myfarmaciafrontend://detalle?id=XYZ (opcional)
       if (isDeepLink(value)) {
         const parsed = ExpoLinking.parse(value);
         const path = (parsed?.path ?? "").replace(/^\/+/, ""); // "detalle"
@@ -110,36 +101,18 @@ export default function ScanScreen() {
         return;
       }
 
-      // 2) URL HTTPS → según política (lista blanca o cualquier https)
+      // 2) URL HTTPS → validar dominio contra BASE_HOST
       const url = isHttpsUrl(value);
       if (url) {
-        const host = url.hostname.toLowerCase();
-        const path = url.pathname;
-
-        if (DEBUG) {
-          Alert.alert("DEBUG", `host: ${host}\npath: ${path}`);
+        /** ⬇️ CAMBIO: validación exacta + subdominios del dominio requerido */
+        if (!isAllowedBaseHost(url.hostname)) {
+          Alert.alert("Código QR no válido", `Dominio detectado: ${url.hostname}`, [
+            { text: "OK", onPress: () => setScanned(false) }
+          ]);
+          return;
         }
 
-        if (OPEN_POLICY === "whitelist") {
-          // Permite si está en la lista exacta o es subdominio de ROOT_DOMAINS
-          const permitido = ALLOWED_HOSTS.has(host) || isAllowedSubdomain(host);
-
-          // (OPCIONAL) Ejemplo de restricción adicional por path en example.org
-          // if (host === "example.org" && !path.startsWith("/un/")) {
-          //   Alert.alert("Enlace bloqueado", "Ruta no permitida en example.org", [
-          //     { text: "OK", onPress: () => setScanned(false) }
-          //   ]);
-          //   return;
-          // }
-
-          if (!permitido) {
-            Alert.alert("Enlace bloqueado", `Dominio no permitido: ${host}`, [
-              { text: "OK", onPress: () => setScanned(false) }
-            ]);
-            return;
-          }
-        }
-
+        // (opcional) Confirmación antes de abrir
         Alert.alert("Abrir enlace", url.toString(), [
           { text: "Cancelar", style: "cancel", onPress: () => setScanned(false) },
           {
@@ -157,7 +130,7 @@ export default function ScanScreen() {
         return;
       }
 
-      // 3) ID opaco → navegar a detalle y consultar backend
+      // 3) ID opaco → navegar a detalle (si también vas a soportar IDs puros)
       if (ID_REGEX.test(value)) {
         router.push({ pathname: "/detalle", params: { id: value, kind: type } });
         return;
@@ -209,11 +182,14 @@ export default function ScanScreen() {
         barcodeScannerSettings={{ barcodeTypes: ["qr"] }}
         onBarcodeScanned={scanned ? undefined : handleBarcode}
       />
+
       {scanned && (
         <Pressable style={styles.scanAgain} onPress={() => setScanned(false)}>
           <Text style={styles.scanAgainText}>Tocar para escanear de nuevo</Text>
         </Pressable>
       )}
+
+      {/* Overlay con recuadro guía (visual) */}
       <View pointerEvents="none" style={styles.overlay}>
         <View style={styles.guideBox} />
         <Text style={styles.overlayText}>Alinea el QR dentro del recuadro</Text>
